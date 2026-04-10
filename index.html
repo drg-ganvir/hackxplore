@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      // Apply saved theme before React loads to prevent flash
+      (function() {
+        var t = localStorage.getItem("hackxplore-theme") || "dark";
+        document.documentElement.classList.add(t);
+        document.documentElement.setAttribute("data-theme", t);
+        document.documentElement.style.colorScheme = t;
+      })();
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+    <title>HackXplore</title>
+    <meta name="description" content="HackXplore - Discover, Connect, and Participate in Hackathons & Internships" />
+    <meta name="author" content="HackXplore Team" />
+
+    <meta property="og:title" content="HackXplore" />
+    <meta property="og:description" content="A unified platform for hackathon and internship discovery" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://hackxplore.dev/assets/og-image.png" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@hackxplore_hq" />
+    <meta name="twitter:image" content="https://hackxplore.dev/assets/og-image.png" />
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <!-- IMPORTANT: DO NOT REMOVE THIS SCRIPT TAG OR THIS VERY COMMENT! -->
+    <script src="https://cdn.gpteng.co/gptengineer.js" type="module"></script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
