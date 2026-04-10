@@ -188,7 +188,6 @@ export default function Scholarships() {
                         <div key={scholarship.id} className="animate-float scholarship-card-container">
                           <ScholarshipCard
                             {...scholarship}
-                            onViewDetailsClick={() => handleViewDetails(scholarship.id)}
                           />
                         </div>
                       ))}

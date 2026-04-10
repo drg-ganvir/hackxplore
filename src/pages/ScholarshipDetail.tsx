@@ -10,6 +10,9 @@ import { Separator } from "@/components/ui/separator";
 import { useBookmarks } from "@/services/bookmarkService";
 import { useAuth } from "@/contexts/AuthContext";
 import { scholarshipsData } from "@/data/mockData";
+import { fetchLiveScholarships } from "@/services/liveDataService";
+import { useEffect } from "react";
+import { Scholarship } from "@/types";
 import { ReminderModal } from "@/components/internships/ReminderModal";
 import { AuthModal } from "@/components/auth/AuthModal";
 import { useToast } from "@/hooks/use-toast";
@@ -33,8 +36,19 @@ export default function ScholarshipDetail() {
 
   const [isReminderModalOpen, setIsReminderModalOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [scholarship, setScholarship] = useState<Scholarship | undefined>(
+    scholarshipsData.find((s) => s.id === id) as Scholarship | undefined
+  );
 
-  const scholarship = scholarshipsData.find((scholarship) => scholarship.id === id);
+  // Also check live scholarships (covers IDs from liveDataService)
+  useEffect(() => {
+    if (!scholarship) {
+      fetchLiveScholarships().then((live) => {
+        const found = live.find((s) => s.id === id);
+        if (found) setScholarship(found);
+      });
+    }
+  }, [id]);
 
   if (!scholarship) {
     return (

@@ -134,37 +134,20 @@ export function ScholarshipCard({
             <Clock className="h-4 w-4 mr-1" />
             Set Reminder
           </Button>
-          
-          <div className="flex gap-2">
-            {link && (
-              <Button 
-                variant="outline" 
-                size="sm" 
-                className="flex items-center"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  window.open(link, '_blank');
-                }}
-              >
-                <ExternalLink className="h-3.5 w-3.5 mr-1" />
-                Apply
-              </Button>
-            )}
-            
-            {onViewDetailsClick && (
-              <Button 
-                variant="default" 
-                size="sm"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onViewDetailsClick();
-                }}
-                className="gradient-button"
-              >
-                Details
-              </Button>
-            )}
-          </div>
+
+          {link && (
+            <Button
+              size="sm"
+              className="gradient-button flex items-center"
+              onClick={(e) => {
+                e.stopPropagation();
+                window.open(link, "_blank");
+              }}
+            >
+              <ExternalLink className="h-3.5 w-3.5 mr-1" />
+              Apply Now
+            </Button>
+          )}
         </CardFooter>
       </Card>
       

@@ -1,348 +1,310 @@
-
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { MessageCircle, Send, X, Maximize2, Minimize2, Bot, Loader2 } from "lucide-react";
-import { hackathonsData, internshipsData, scholarshipsData } from "@/data/mockData";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { MessageCircle, Send, X, Minimize2, Bot, Loader2, Maximize2 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { fetchLiveHackathons, fetchLiveInternships, fetchLiveScholarships } from "@/services/liveDataService";
+import { HackathonCard, InternshipCard, Scholarship } from "@/types";
 
-// Types for messages
 interface Message {
   id: string;
   content: string;
-  sender: 'user' | 'bot';
+  sender: "user" | "bot";
   timestamp: Date;
+}
+
+// Cache fetched data so we don't re-fetch every message
+let cachedHackathons: HackathonCard[] = [];
+let cachedInternships: InternshipCard[] = [];
+let cachedScholarships: Scholarship[] = [];
+let dataLoaded = false;
+
+async function loadData() {
+  if (dataLoaded) return;
+  try {
+    const [h, i, s] = await Promise.all([
+      fetchLiveHackathons(),
+      fetchLiveInternships(),
+      fetchLiveScholarships(),
+    ]);
+    cachedHackathons = h;
+    cachedInternships = i;
+    cachedScholarships = s;
+    dataLoaded = true;
+  } catch {
+    dataLoaded = false;
+  }
+}
+
+function generateResponse(query: string, user: any): string {
+  const q = query.toLowerCase();
+
+  // Hackathons
+  if (q.includes("hackathon") || q.includes("hack") || q.includes("compete")) {
+    const list = cachedHackathons.slice(0, 4);
+    if (list.length > 0) {
+      const items = list
+        .map((h) => `• *${h.title}* by ${h.organizer}\n  📍 ${h.location} | 🗓 ${new Date(h.startDate).toLocaleDateString()} - ${new Date(h.endDate).toLocaleDateString()}${h.prizePool ? ` | 🏆 $${h.prizePool.toLocaleString()}` : ""}`)
+        .join("\n\n");
+      return `Here are some live hackathons right now:\n\n${items}\n\nVisit the Hackathons page to see all listings and filter by type!`;
+    }
+    return "Check out the Hackathons page for the latest listings — it fetches live data from Devpost!";
+  }
+
+  // Internships
+  if (q.includes("internship") || q.includes("intern") || q.includes("job") || q.includes("work")) {
+    const list = cachedInternships.slice(0, 4);
+    if (list.length > 0) {
+      const items = list
+        .map((i) => `• *${i.title}* at ${i.company}\n  📍 ${i.location}${i.stipend ? ` | 💰 $${i.stipend}/mo` : ""}`)
+        .join("\n\n");
+      return `Here are some live internship opportunities:\n\n${items}\n\nHead to the Internships page to browse all listings and filter by skills!`;
+    }
+    return "Check out the Internships page — it shows real-time remote job listings!";
+  }
+
+  // Scholarships
+  if (q.includes("scholarship") || q.includes("grant") || q.includes("funding") || q.includes("financial")) {
+    const list = cachedScholarships
+      .filter((s) => new Date(s.deadline) > new Date())
+      .sort((a, b) => new Date(a.deadline).getTime() - new Date(b.deadline).getTime())
+      .slice(0, 4);
+    if (list.length > 0) {
+      const items = list
+        .map((s) => `• *${s.title}* — ${s.provider}\n  💵 $${s.amount.toLocaleString()} | ⏰ Deadline: ${new Date(s.deadline).toLocaleDateString()}`)
+        .join("\n\n");
+      return `Here are upcoming scholarships with approaching deadlines:\n\n${items}\n\nVisit the Scholarships page to apply and set deadline reminders!`;
+    }
+    return "Visit the Scholarships page to browse all current scholarship opportunities!";
+  }
+
+  // Team
+  if (q.includes("team") || q.includes("teammate") || q.includes("partner")) {
+    return "You can create or join a hackathon team by clicking **'Create Team'** on any hackathon card. Specify the skills you need and other participants can request to join your team. Manage your teams from your Profile page!";
+  }
+
+  // Profile / bookmarks
+  if (q.includes("profile") || q.includes("bookmark") || q.includes("saved") || q.includes("account")) {
+    return `You can manage your profile, view saved bookmarks, and check your hackathon teams on the **Profile page**. ${!user ? "You'll need to sign in first to access these features." : "Click your avatar in the top right to get there!"}`;
+  }
+
+  // Reminder
+  if (q.includes("reminder") || q.includes("deadline") || q.includes("notify") || q.includes("alert")) {
+    return "You can set deadline reminders by clicking the 🔔 **bell icon** on any internship or scholarship card. You'll find all your reminders in your Profile page!";
+  }
+
+  // About the platform
+  if (q.includes("what is hackxplore") || q.includes("about") || q.includes("how does") || q.includes("help")) {
+    return "**HackXplore** is your one-stop platform for:\n\n🏆 Live hackathons from Devpost\n💼 Real-time internships from Remotive\n🎓 Scholarships from top companies\n👥 Team formation for hackathons\n🔖 Bookmark & deadline reminders\n\nWhat would you like to explore?";
+  }
+
+  // Greeting
+  if (q.includes("hi") || q.includes("hello") || q.includes("hey") || q.includes("hlo")) {
+    return `Hey there! 👋 I'm the HackXplore assistant. I can help you find:\n\n🏆 Hackathons\n💼 Internships\n🎓 Scholarships\n👥 Team formation tips\n\nWhat are you looking for today?`;
+  }
+
+  // Fallback
+  return "I can help you find **hackathons**, **internships**, or **scholarships**! You can also ask about creating teams, setting reminders, or managing your bookmarks. What would you like to know? 😊";
 }
 
 export function Chatbot() {
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const [dataReady, setDataReady] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const { user } = useAuth();
-  
-  // Initial welcome message
+
+  // Load live data when chatbot opens
+  useEffect(() => {
+    if (isOpen && !dataLoaded) {
+      loadData().then(() => setDataReady(true));
+    } else if (dataLoaded) {
+      setDataReady(true);
+    }
+  }, [isOpen]);
+
+  // Welcome message
   useEffect(() => {
     if (messages.length === 0) {
-      setMessages([
-        {
-          id: '1',
-          content: "👋 Hi there! I'm your HackXplore assistant. I can help you with information about hackathons, internships, and scholarships. How can I assist you today?",
-          sender: 'bot',
-          timestamp: new Date()
-        }
-      ]);
+      setMessages([{
+        id: "1",
+        content: "👋 Hi! I'm your HackXplore assistant. Ask me about hackathons, internships, scholarships, or team formation!",
+        sender: "bot",
+        timestamp: new Date(),
+      }]);
     }
-  }, [messages.length]);
-  
-  // Auto scroll to bottom of messages
+  }, []);
+
+  // Auto scroll to bottom
   useEffect(() => {
-    if (scrollAreaRef.current) {
-      scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
-    }
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
-  
-  const toggleChatbot = () => {
-    if (isMinimized) {
-      setIsMinimized(false);
-    } else {
-      setIsOpen(!isOpen);
-    }
-  };
-  
-  const minimize = () => {
-    setIsMinimized(true);
-  };
-  
-  const maximize = () => {
-    setIsMinimized(false);
-  };
-  
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setInput(e.target.value);
-  };
-  
-  const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && input.trim()) {
-      handleSendMessage();
-    }
-  };
-  
-  const handleSendMessage = async () => {
-    if (!input.trim()) return;
-    
-    // Add user message
-    const userMessage: Message = {
+
+  const handleSend = async () => {
+    if (!input.trim() || isLoading) return;
+
+    const userMsg: Message = {
       id: Date.now().toString(),
       content: input,
-      sender: 'user',
-      timestamp: new Date()
+      sender: "user",
+      timestamp: new Date(),
     };
-    
-    setMessages(prev => [...prev, userMessage]);
-    setInput('');
+    setMessages((prev) => [...prev, userMsg]);
+    setInput("");
     setIsLoading(true);
-    
-    // Generate bot response (simulated delay)
+
+    // If data not ready yet, wait briefly
+    if (!dataLoaded) await loadData();
+
     setTimeout(() => {
-      const response = generateResponse(input);
-      
-      const botMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        content: response,
-        sender: 'bot',
-        timestamp: new Date()
-      };
-      
-      setMessages(prev => [...prev, botMessage]);
+      const response = generateResponse(input, user);
+      setMessages((prev) => [
+        ...prev,
+        { id: (Date.now() + 1).toString(), content: response, sender: "bot", timestamp: new Date() },
+      ]);
       setIsLoading(false);
-    }, 1000);
+    }, 600);
   };
-  
-  const generateResponse = (query: string) => {
-    const lowercaseQuery = query.toLowerCase();
-    
-    // Check if query is about hackathons
-    if (
-      lowercaseQuery.includes('hackathon') || 
-      lowercaseQuery.includes('hack') ||
-      lowercaseQuery.includes('team')
-    ) {
-      const upcomingHackathons = hackathonsData
-        .filter(h => new Date(h.endDate) > new Date())
-        .slice(0, 3);
-      
-      if (upcomingHackathons.length > 0) {
-        return `Here are some upcoming hackathons you might be interested in:
-        
-${upcomingHackathons.map(h => `- ${h.title} by ${h.organizer} (${new Date(h.startDate).toLocaleDateString()} to ${new Date(h.endDate).toLocaleDateString()})${h.prizePool ? ` - Prize pool: $${h.prizePool.toLocaleString()}` : ''}`).join('\n')}
 
-You can view all hackathons on the Hackathons page. Would you like to know more about any of these?`;
-      } else {
-        return "I don't have information about upcoming hackathons at the moment. Please check the Hackathons page for the latest listings.";
-      }
-    }
-    
-    // Check if query is about internships
-    if (
-      lowercaseQuery.includes('internship') || 
-      lowercaseQuery.includes('intern') ||
-      lowercaseQuery.includes('job')
-    ) {
-      const recentInternships = internshipsData
-        .slice(0, 3);
-      
-      if (recentInternships.length > 0) {
-        return `Here are some internship opportunities that might interest you:
-        
-${recentInternships.map(i => `- ${i.title} at ${i.company} (${i.location})${i.stipend ? ` - Stipend: $${i.stipend}` : ''}`).join('\n')}
-
-You can explore all internships on the Internships page. Would you like more details about any of these?`;
-      } else {
-        return "I don't have information about internships at the moment. Please check the Internships page for the latest listings.";
-      }
-    }
-    
-    // Check if query is about scholarships
-    if (
-      lowercaseQuery.includes('scholarship') || 
-      lowercaseQuery.includes('grant') ||
-      lowercaseQuery.includes('fund') ||
-      lowercaseQuery.includes('financial aid')
-    ) {
-      const upcomingScholarships = scholarshipsData
-        .filter(s => new Date(s.deadline) > new Date())
-        .sort((a, b) => new Date(a.deadline).getTime() - new Date(b.deadline).getTime())
-        .slice(0, 3);
-      
-      if (upcomingScholarships.length > 0) {
-        return `Here are some upcoming scholarship opportunities:
-        
-${upcomingScholarships.map(s => `- ${s.title} by ${s.provider} (Deadline: ${new Date(s.deadline).toLocaleDateString()}) - Amount: $${s.amount.toLocaleString()}`).join('\n')}
-
-Visit the Scholarships page to explore all opportunities. Would you like more information about any of these?`;
-      } else {
-        return "I don't have information about current scholarships. Please check the Scholarships page for the latest listings.";
-      }
-    }
-    
-    // Check if query is about profile or account
-    if (
-      lowercaseQuery.includes('profile') || 
-      lowercaseQuery.includes('account') ||
-      lowercaseQuery.includes('my bookmarks') ||
-      lowercaseQuery.includes('settings')
-    ) {
-      return `You can manage your profile, view your bookmarks, and check your team memberships by visiting the Profile page. ${!user ? "You'll need to log in first to access these features." : ""}`;
-    }
-    
-    // Check if query is about reminders
-    if (
-      lowercaseQuery.includes('reminder') || 
-      lowercaseQuery.includes('notify') ||
-      lowercaseQuery.includes('alert')
-    ) {
-      return "You can set reminders for hackathon deadlines, internship applications, and scholarship deadlines. Look for the 'Set Reminder' button on each card or detail page. Reminders will be shown in your profile.";
-    }
-    
-    // Check if query is about creating or joining teams
-    if (
-      lowercaseQuery.includes('create team') || 
-      lowercaseQuery.includes('join team') ||
-      lowercaseQuery.includes('find teammates')
-    ) {
-      return "You can create or join teams for hackathons by clicking on the 'Create Team' or 'Join Team' buttons on the hackathon cards. When creating a team, you can specify the skills you're looking for. You can manage your teams from your profile page.";
-    }
-    
-    // General inquiry about the platform
-    if (
-      lowercaseQuery.includes('what is') || 
-      lowercaseQuery.includes('how does') ||
-      lowercaseQuery.includes('about platform')
-    ) {
-      return "HackXplore is a centralized platform where you can discover hackathons, internships, and scholarships all in one place. You can bookmark opportunities, set reminders for deadlines, create or join hackathon teams, and more. Is there something specific you'd like to know about?";
-    }
-    
-    // Fallback response
-    return "I'm not sure I understand. Could you rephrase your question? I can help with information about hackathons, internships, scholarships, team formation, or how to use the platform.";
+  const handleKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") handleSend();
   };
-  
+
+  // Quick suggestion chips
+  const suggestions = ["Hackathons", "Internships", "Scholarships", "Create a team"];
+
   return (
     <>
-      {/* Chat button */}
+      {/* Toggle button */}
       <Button
-        onClick={toggleChatbot}
-        className="fixed bottom-6 right-6 rounded-full h-14 w-14 shadow-lg gradient-button animate-pulse-slow"
+        onClick={() => { setIsOpen(!isOpen); setIsMinimized(false); }}
+        className="fixed bottom-6 right-6 z-50 rounded-full h-14 w-14 shadow-xl gradient-button"
         size="icon"
       >
-        <MessageCircle className="h-6 w-6" />
+        {isOpen ? <X className="h-6 w-6" /> : <MessageCircle className="h-6 w-6" />}
       </Button>
 
       {/* Chat window */}
       {isOpen && (
-        <Card
-          className={`
-            fixed z-50 shadow-xl border border-primary/20 bg-card/95 backdrop-blur-sm
-            transition-all duration-300 ease-in-out
-            ${isMinimized 
-              ? 'bottom-24 right-6 h-16 w-80' 
-              : 'bottom-24 right-6 max-w-md w-[90vw] md:w-[400px] h-[500px] max-h-[80vh]'
-            }
-          `}
-        >
-          {isMinimized ? (
-            <div className="flex items-center justify-between h-full px-4">
-              <div className="flex items-center space-x-2">
-                <Bot className="h-5 w-5 text-primary" />
-                <span className="font-medium">HackXplore Assistant</span>
+        <Card className={`
+          fixed z-50 shadow-2xl border border-primary/20 bg-card/98 backdrop-blur-md
+          right-6 transition-all duration-300
+          ${isMinimized
+            ? "bottom-24 h-14 w-72"
+            : "bottom-24 w-[92vw] sm:w-[380px] h-[520px] max-h-[80vh]"}
+        `}>
+          {/* Header */}
+          <CardHeader className="px-4 py-3 border-b flex flex-row items-center justify-between space-y-0 shrink-0">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2">
+              <div className="h-7 w-7 rounded-full bg-primary/20 flex items-center justify-center">
+                <Bot className="h-4 w-4 text-primary" />
               </div>
-              <Button variant="ghost" size="icon" onClick={maximize}>
-                <Maximize2 className="h-4 w-4" />
+              HackXplore Assistant
+              {dataReady && (
+                <span className="text-xs font-normal text-green-500 flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-green-500 inline-block" />
+                  Live
+                </span>
+              )}
+            </CardTitle>
+            <div className="flex gap-1">
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setIsMinimized(!isMinimized)}>
+                {isMinimized ? <Maximize2 className="h-3.5 w-3.5" /> : <Minimize2 className="h-3.5 w-3.5" />}
+              </Button>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setIsOpen(false)}>
+                <X className="h-3.5 w-3.5" />
               </Button>
             </div>
-          ) : (
-            <>
-              <CardHeader className="px-4 py-3 border-b flex flex-row items-center justify-between space-y-0">
-                <CardTitle className="text-md font-medium flex items-center">
-                  <Bot className="h-5 w-5 text-primary mr-2" />
-                  HackXplore Assistant
-                </CardTitle>
-                <div className="flex items-center space-x-1">
-                  <Button variant="ghost" size="icon" onClick={minimize}>
-                    <Minimize2 className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="icon" onClick={() => setIsOpen(false)}>
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-              </CardHeader>
+          </CardHeader>
 
-              <CardContent className="p-0 flex flex-col h-[calc(100%-110px)]">
-                <ScrollArea 
-                  className="h-full py-4 px-4" 
-                  ref={scrollAreaRef as React.RefObject<HTMLDivElement>}
-                >
-                  <div className="space-y-4">
-                    {messages.map((message) => (
-                      <div
-                        key={message.id}
-                        className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
-                      >
-                        <div className={`
-                          flex items-start space-x-2 max-w-[80%]
-                          ${message.sender === 'user' ? 'flex-row-reverse space-x-reverse' : ''}
-                        `}>
-                          {message.sender === 'bot' && (
-                            <Avatar className="h-8 w-8">
-                              <AvatarImage src="/bot-avatar.png" />
-                              <AvatarFallback className="bg-primary text-primary-foreground">
-                                <Bot className="h-5 w-5" />
+          {!isMinimized && (
+            <>
+              {/* Messages */}
+              <CardContent className="p-0 flex-1 overflow-hidden" style={{ height: "calc(100% - 110px)" }}>
+                <ScrollArea className="h-full px-3 py-3">
+                  <div className="space-y-3">
+                    {messages.map((msg) => (
+                      <div key={msg.id} className={`flex ${msg.sender === "user" ? "justify-end" : "justify-start"}`}>
+                        <div className={`flex items-end gap-2 max-w-[85%] ${msg.sender === "user" ? "flex-row-reverse" : ""}`}>
+                          {msg.sender === "bot" && (
+                            <Avatar className="h-6 w-6 shrink-0">
+                              <AvatarFallback className="bg-primary/20 text-primary text-xs">
+                                <Bot className="h-3.5 w-3.5" />
                               </AvatarFallback>
                             </Avatar>
                           )}
-                          
-                          <div className={`
-                            py-2 px-3 rounded-lg
-                            ${message.sender === 'user' 
-                              ? 'bg-primary text-primary-foreground' 
-                              : 'bg-muted'}
-                          `}>
-                            <div className="whitespace-pre-line break-words text-sm">
-                              {message.content}
-                            </div>
-                            <div className={`
-                              text-xs mt-1 
-                              ${message.sender === 'user' 
-                                ? 'text-primary-foreground/70' 
-                                : 'text-muted-foreground'}
-                            `}>
-                              {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          <div className={`px-3 py-2 rounded-2xl text-sm leading-relaxed ${
+                            msg.sender === "user"
+                              ? "bg-primary text-primary-foreground rounded-br-sm"
+                              : "bg-muted text-foreground rounded-bl-sm"
+                          }`}>
+                            <div className="whitespace-pre-line break-words">{msg.content}</div>
+                            <div className={`text-xs mt-1 opacity-60`}>
+                              {msg.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                             </div>
                           </div>
                         </div>
                       </div>
                     ))}
-                    
+
                     {isLoading && (
                       <div className="flex justify-start">
-                        <div className="flex items-start space-x-2 max-w-[80%]">
-                          <Avatar className="h-8 w-8">
-                            <AvatarFallback className="bg-primary text-primary-foreground">
-                              <Bot className="h-5 w-5" />
+                        <div className="flex items-end gap-2">
+                          <Avatar className="h-6 w-6 shrink-0">
+                            <AvatarFallback className="bg-primary/20 text-primary text-xs">
+                              <Bot className="h-3.5 w-3.5" />
                             </AvatarFallback>
                           </Avatar>
-                          
-                          <div className="py-3 px-4 rounded-lg bg-muted flex items-center">
-                            <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                            <span className="ml-2 text-xs text-muted-foreground">Thinking...</span>
+                          <div className="px-3 py-2 rounded-2xl rounded-bl-sm bg-muted flex items-center gap-1.5">
+                            <span className="h-1.5 w-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: "0ms" }} />
+                            <span className="h-1.5 w-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: "150ms" }} />
+                            <span className="h-1.5 w-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: "300ms" }} />
                           </div>
                         </div>
                       </div>
                     )}
+                    <div ref={messagesEndRef} />
                   </div>
+
+                  {/* Suggestion chips — show only at start */}
+                  {messages.length === 1 && (
+                    <div className="flex flex-wrap gap-2 mt-3">
+                      {suggestions.map((s) => (
+                        <button
+                          key={s}
+                          onClick={() => { setInput(s); }}
+                          className="text-xs px-3 py-1.5 rounded-full border border-primary/30 text-primary hover:bg-primary/10 transition-colors"
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </ScrollArea>
               </CardContent>
 
-              <CardFooter className="p-3 pt-2 border-t">
-                <div className="flex w-full items-center space-x-2">
+              {/* Input */}
+              <CardFooter className="p-3 border-t shrink-0">
+                <div className="flex w-full items-center gap-2">
                   <Input
-                    placeholder="Type your message..."
+                    placeholder="Ask me anything..."
                     value={input}
-                    onChange={handleInputChange}
-                    onKeyDown={handleKeyPress}
-                    className="flex-1"
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={handleKey}
+                    className="flex-1 text-sm h-9"
+                    autoComplete="off"
                   />
-                  <Button 
+                  <Button
                     size="icon"
-                    onClick={handleSendMessage}
+                    className="h-9 w-9 gradient-button shrink-0"
+                    onClick={handleSend}
                     disabled={!input.trim() || isLoading}
-                    className="gradient-button"
                   >
                     <Send className="h-4 w-4" />
                   </Button>
