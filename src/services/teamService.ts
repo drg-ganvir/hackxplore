@@ -3,199 +3,298 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
 import { Team, TeamJoinRequest } from "@/types";
 
-const mockTeamsData = [
-  {
-    id: "team-1",
-    hackathonId: "hackathon-1",
-    name: "Team Awesome",
-    description: "We are building something awesome!",
-    skillsNeeded: ["React", "Node.js", "JavaScript"],
-    maxMembers: 4,
-    members: ["user-1", "user-2"],
-    isOpen: true,
-    createdAt: "2023-05-15T10:30:00Z"
-  },
-  {
-    id: "team-2",
-    hackathonId: "hackathon-2",
-    name: "The Innovators",
-    description: "Innovating for a better future",
-    skillsNeeded: ["Python", "AI", "Machine Learning"],
-    maxMembers: 5,
-    members: ["user-3", "user-4", "user-5"],
-    isOpen: true,
-    createdAt: "2023-05-16T14:20:00Z"
-  },
-  {
-    id: "team-3",
-    hackathonId: "hackathon-1",
-    name: "Code Wizards",
-    description: "Casting spells with code",
-    skillsNeeded: ["JavaScript", "HTML", "CSS"],
-    maxMembers: 3,
-    members: ["user-1"],
-    isOpen: true,
-    createdAt: "2023-05-17T09:15:00Z"
-  }
-];
+// ─── PERSISTENT STORAGE ───────────────────────────────────────────────────────
+// Teams are stored in localStorage so they persist across page reloads
+// and are visible to ALL users (shared storage key)
 
-const mockJoinRequests = [
-  {
-    id: "request-1",
-    teamId: "team-2",
-    userId: "user-1",
-    status: "pending",
-    createdAt: "2023-05-20T10:00:00Z"
-  },
-  {
-    id: "request-2",
-    teamId: "team-3",
-    userId: "user-2",
-    status: "accepted",
-    createdAt: "2023-05-21T14:00:00Z"
-  },
-  {
-    id: "request-3",
-    teamId: "team-1",
-    userId: "user-3",
-    status: "rejected",
-    createdAt: "2023-05-22T18:00:00Z"
+const TEAMS_KEY = "hackxplore_teams";
+const REQUESTS_KEY = "hackxplore_join_requests";
+
+function getTeams(): Team[] {
+  try {
+    const raw = localStorage.getItem(TEAMS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
   }
-];
+}
+
+function saveTeams(teams: Team[]) {
+  try {
+    localStorage.setItem(TEAMS_KEY, JSON.stringify(teams));
+  } catch {}
+}
+
+function getRequests(): TeamJoinRequest[] {
+  try {
+    const raw = localStorage.getItem(REQUESTS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRequests(requests: TeamJoinRequest[]) {
+  try {
+    localStorage.setItem(REQUESTS_KEY, JSON.stringify(requests));
+  } catch {}
+}
+
+// ─── HOOK ─────────────────────────────────────────────────────────────────────
 
 export const useTeams = () => {
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  
-  // Function to create a team
-  const createTeam = async (teamData: Omit<Team, 'id' | 'members' | 'createdAt' | 'isOpen'>) => {
-    if (!user) {
-      return { success: false, error: "User not authenticated" };
-    }
-    
-    const newTeam = {
-      id: `team-${Date.now()}`,
+
+  // ── CREATE TEAM ──────────────────────────────────────────────────────────────
+  const createTeam = async (
+    teamData: Omit<Team, "id" | "members" | "createdAt" | "isOpen" | "updatedAt" | "leaderId">
+  ) => {
+    if (!user) return { success: false, error: "Please sign in to create a team" };
+
+    const newTeam: Team = {
+      id: `team-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      leaderId: user.id,
       members: [user.id],
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       isOpen: true,
-      ...teamData
+      ...teamData,
     };
-    
-    // Simulate API call
-    mockTeamsData.push(newTeam as Team);
-    
-    // Optimistically update the cache
-    queryClient.setQueryData(['user-teams', user.id], (oldData: any) => {
-      return [...(oldData || []), newTeam];
-    });
-    
+
+    const teams = getTeams();
+    teams.push(newTeam);
+    saveTeams(teams);
+
+    // Invalidate all team queries so UI refreshes everywhere
+    queryClient.invalidateQueries({ queryKey: ["hackathon-teams"] });
+    queryClient.invalidateQueries({ queryKey: ["user-teams"] });
+    queryClient.invalidateQueries({ queryKey: ["all-teams"] });
+
     return { success: true, data: newTeam };
   };
-  
-  // Function to fetch teams for a specific hackathon
-  const useHackathonTeams = (hackathonId: string) => {
-    return useQuery({
-      queryKey: ['hackathon-teams', hackathonId],
-      queryFn: async () => {
-        // Simulate API call
-        return mockTeamsData.filter(team => team.hackathonId === hackathonId);
-      },
-      staleTime: 1000 * 60 * 5, // 5 minutes
-    });
-  };
-  
-  // Function to fetch teams created or joined by the current user
-  const useUserTeams = () => {
-    return useQuery({
-      queryKey: ['user-teams', user?.id],
-      queryFn: async () => {
-        if (!user) return [];
-        
-        // Simulate API call
-        return mockTeamsData.filter(team => team.members.includes(user.id));
-      },
-      enabled: !!user,
-      staleTime: 1000 * 60 * 5, // 5 minutes
-    });
-  };
-  
-  // Function to delete a team
+
+  // ── DELETE TEAM ──────────────────────────────────────────────────────────────
   const deleteTeam = async (teamId: string) => {
-    if (!user) {
-      return { success: false, error: "User not authenticated" };
+    if (!user) return { success: false, error: "Please sign in" };
+
+    const teams = getTeams();
+    const team = teams.find((t) => t.id === teamId);
+
+    if (!team) return { success: false, error: "Team not found" };
+    if (team.leaderId !== user.id && !team.members.includes(user.id)) {
+      return { success: false, error: "Not authorized to delete this team" };
     }
-    
-    // Check if the user is a member of the team
-    const teamToDelete = mockTeamsData.find(team => team.id === teamId);
-    if (!teamToDelete || !teamToDelete.members.includes(user.id)) {
-      return { success: false, error: "User not authorized to delete this team" };
-    }
-    
-    // Simulate API call
-    const index = mockTeamsData.findIndex(team => team.id === teamId);
-    if (index > -1) {
-      mockTeamsData.splice(index, 1);
-    }
-    
-    // Optimistically update the cache
-    queryClient.setQueryData(['user-teams', user.id], (oldData: any) => {
-      return (oldData || []).filter((team: any) => team.id !== teamId);
-    });
-    
+
+    const updated = teams.filter((t) => t.id !== teamId);
+    saveTeams(updated);
+
+    queryClient.invalidateQueries({ queryKey: ["hackathon-teams"] });
+    queryClient.invalidateQueries({ queryKey: ["user-teams"] });
+    queryClient.invalidateQueries({ queryKey: ["all-teams"] });
+
     return { success: true };
   };
-  
-  // Function to send a join request to a team
-  const sendJoinRequest = async (teamId: string) => {
-    if (!user) {
-      return { success: false, error: "User not authenticated" };
-    }
-    
-    // Check if the user has already requested to join the team
-    if (mockJoinRequests.find(req => req.teamId === teamId && req.userId === user.id)) {
-      return { success: false, error: "Join request already sent" };
-    }
-    
-    const newRequest = {
-      id: `request-${Date.now()}`,
-      teamId: teamId,
-      userId: user.id,
-      status: "pending",
-      createdAt: new Date().toISOString()
-    };
-    
-    // Simulate API call
-    mockJoinRequests.push(newRequest);
-    
-    // Optimistically update the cache
-    queryClient.setQueryData(['user-sent-requests', user.id], (oldData: any) => {
-      return [...(oldData || []), newRequest];
-    });
-    
-    return { success: true, data: newRequest };
-  };
-  
-  // Function to fetch join requests sent by the current user
-  const useUserSentRequests = () => {
+
+  // ── GET TEAMS FOR A HACKATHON ─────────────────────────────────────────────────
+  const useHackathonTeams = (hackathonId: string) => {
     return useQuery({
-      queryKey: ['user-sent-requests', user?.id],
-      queryFn: async () => {
+      queryKey: ["hackathon-teams", hackathonId],
+      queryFn: () => {
+        const teams = getTeams();
+        return teams.filter((t) => t.hackathonId === hackathonId);
+      },
+      // Refetch frequently so changes from other "users" appear
+      staleTime: 10 * 1000, // 10 seconds
+      refetchInterval: 15 * 1000, // poll every 15s
+    });
+  };
+
+  // ── GET ALL TEAMS ─────────────────────────────────────────────────────────────
+  const useAllTeams = () => {
+    return useQuery({
+      queryKey: ["all-teams"],
+      queryFn: () => getTeams(),
+      staleTime: 10 * 1000,
+      refetchInterval: 15 * 1000,
+    });
+  };
+
+  // ── GET USER'S TEAMS ──────────────────────────────────────────────────────────
+  const useUserTeams = () => {
+    return useQuery({
+      queryKey: ["user-teams", user?.id],
+      queryFn: () => {
         if (!user) return [];
-        
-        // Simulate API call
-        return mockJoinRequests.filter(req => req.userId === user.id);
+        return getTeams().filter((t) => t.members.includes(user.id));
       },
       enabled: !!user,
-      staleTime: 1000 * 60 * 5, // 5 minutes
+      staleTime: 10 * 1000,
+      refetchInterval: 15 * 1000,
     });
   };
-  
+
+  // ── SEND JOIN REQUEST ─────────────────────────────────────────────────────────
+  const sendJoinRequest = async (teamId: string) => {
+    if (!user) return { success: false, error: "Please sign in to join a team" };
+
+    const requests = getRequests();
+
+    // Check if already requested
+    if (requests.find((r) => r.teamId === teamId && r.userId === user.id)) {
+      return { success: false, error: "You already sent a join request to this team" };
+    }
+
+    // Check if already a member
+    const teams = getTeams();
+    const team = teams.find((t) => t.id === teamId);
+    if (!team) return { success: false, error: "Team not found" };
+    if (team.members.includes(user.id)) {
+      return { success: false, error: "You are already a member of this team" };
+    }
+
+    const newRequest: TeamJoinRequest = {
+      id: `req-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      teamId,
+      userId: user.id,
+      status: "pending",
+      createdAt: new Date().toISOString(),
+    };
+
+    requests.push(newRequest);
+    saveRequests(requests);
+
+    queryClient.invalidateQueries({ queryKey: ["user-sent-requests"] });
+    queryClient.invalidateQueries({ queryKey: ["team-requests", teamId] });
+
+    return { success: true, data: newRequest };
+  };
+
+  // ── ACCEPT / REJECT JOIN REQUEST ──────────────────────────────────────────────
+  const respondToJoinRequest = async (
+    requestId: string,
+    action: "accepted" | "rejected"
+  ) => {
+    if (!user) return { success: false, error: "Not authenticated" };
+
+    const requests = getRequests();
+    const reqIdx = requests.findIndex((r) => r.id === requestId);
+    if (reqIdx === -1) return { success: false, error: "Request not found" };
+
+    const req = requests[reqIdx];
+
+    if (action === "accepted") {
+      // Add user to team members
+      const teams = getTeams();
+      const teamIdx = teams.findIndex((t) => t.id === req.teamId);
+      if (teamIdx !== -1) {
+        if (!teams[teamIdx].members.includes(req.userId)) {
+          teams[teamIdx].members.push(req.userId);
+          teams[teamIdx].updatedAt = new Date().toISOString();
+        }
+        saveTeams(teams);
+      }
+    }
+
+    requests[reqIdx] = { ...req, status: action };
+    saveRequests(requests);
+
+    queryClient.invalidateQueries({ queryKey: ["hackathon-teams"] });
+    queryClient.invalidateQueries({ queryKey: ["user-teams"] });
+    queryClient.invalidateQueries({ queryKey: ["team-requests", req.teamId] });
+
+    return { success: true };
+  };
+
+  // ── GET REQUESTS FOR A TEAM ───────────────────────────────────────────────────
+  const useTeamRequests = (teamId: string) => {
+    return useQuery({
+      queryKey: ["team-requests", teamId],
+      queryFn: () => getRequests().filter((r) => r.teamId === teamId && r.status === "pending"),
+      staleTime: 10 * 1000,
+      refetchInterval: 15 * 1000,
+    });
+  };
+
+  // ── GET USER'S SENT REQUESTS ──────────────────────────────────────────────────
+  const useUserSentRequests = () => {
+    return useQuery({
+      queryKey: ["user-sent-requests", user?.id],
+      queryFn: () => {
+        if (!user) return [];
+        return getRequests().filter((r) => r.userId === user.id);
+      },
+      enabled: !!user,
+      staleTime: 10 * 1000,
+    });
+  };
+
+  // ── JOIN TEAM DIRECTLY ────────────────────────────────────────────────────────
+  const joinTeam = async (teamId: string) => {
+    if (!user) return { success: false, error: "Please sign in" };
+
+    const teams = getTeams();
+    const idx = teams.findIndex((t) => t.id === teamId);
+    if (idx === -1) return { success: false, error: "Team not found" };
+    if (teams[idx].members.includes(user.id)) {
+      return { success: false, error: "Already a member" };
+    }
+    if (teams[idx].members.length >= teams[idx].maxMembers) {
+      return { success: false, error: "Team is full" };
+    }
+
+    teams[idx].members.push(user.id);
+    teams[idx].updatedAt = new Date().toISOString();
+    saveTeams(teams);
+
+    queryClient.invalidateQueries({ queryKey: ["hackathon-teams"] });
+    queryClient.invalidateQueries({ queryKey: ["user-teams"] });
+
+    return { success: true };
+  };
+
+  // ── LEAVE TEAM ────────────────────────────────────────────────────────────────
+  const leaveTeam = async (teamId: string) => {
+    if (!user) return { success: false, error: "Please sign in" };
+
+    const teams = getTeams();
+    const idx = teams.findIndex((t) => t.id === teamId);
+    if (idx === -1) return { success: false, error: "Team not found" };
+
+    teams[idx].members = teams[idx].members.filter((m) => m !== user.id);
+    teams[idx].updatedAt = new Date().toISOString();
+
+    // If team is now empty, delete it
+    if (teams[idx].members.length === 0) {
+      teams.splice(idx, 1);
+    }
+    saveTeams(teams);
+
+    queryClient.invalidateQueries({ queryKey: ["hackathon-teams"] });
+    queryClient.invalidateQueries({ queryKey: ["user-teams"] });
+
+    return { success: true };
+  };
+
+  // ── IS USER IN TEAM ───────────────────────────────────────────────────────────
+  const isUserInTeam = (teamId: string): boolean => {
+    if (!user) return false;
+    const team = getTeams().find((t) => t.id === teamId);
+    return team ? team.members.includes(user.id) : false;
+  };
+
   return {
     createTeam,
-    useHackathonTeams,
-    useUserTeams,
     deleteTeam,
+    useHackathonTeams,
+    useAllTeams,
+    useUserTeams,
     sendJoinRequest,
+    respondToJoinRequest,
+    useTeamRequests,
     useUserSentRequests,
+    joinTeam,
+    leaveTeam,
+    isUserInTeam,
   };
 };

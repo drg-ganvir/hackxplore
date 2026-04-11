@@ -85,7 +85,7 @@ export default function Hackathons() {
     });
 
     if (!showAll) {
-      setFilteredHackathons(results.slice(0, 9));
+      setFilteredHackathons(results.slice(0, 12));
     } else {
       setFilteredHackathons(results);
     }
@@ -220,7 +220,7 @@ export default function Hackathons() {
                       ))}
                     </div>
 
-                    {!showAll && filteredHackathons.length >= 9 && (
+                    {!showAll && filteredHackathons.length >= 12 && (
                       <div className="flex justify-center mt-8">
                         <Button onClick={handleViewMore} className="flex items-center gap-2 gradient-button">
                           Load More

@@ -81,7 +81,7 @@ export default function Internships() {
     });
 
     if (!showAll) {
-      setFilteredInternships(results.slice(0, 9));
+      setFilteredInternships(results.slice(0, 12));
     } else {
       setFilteredInternships(results);
     }
@@ -209,7 +209,7 @@ export default function Internships() {
                       ))}
                     </div>
 
-                    {!showAll && filteredInternships.length >= 9 && (
+                    {!showAll && filteredInternships.length >= 12 && (
                       <div className="flex justify-center mt-8">
                         <Button onClick={handleViewMore} className="flex items-center gap-2 gradient-button">
                           Load More
