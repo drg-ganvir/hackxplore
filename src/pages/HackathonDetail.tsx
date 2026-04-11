@@ -233,7 +233,7 @@ export default function HackathonDetail() {
                     ) : (
                       <div className="space-y-3">
                         {teams.map(team => {
-                          const inTeam = isUserInTeam(team.id);
+                          const inTeam = user ? team.members.includes(user.id) : false;
                           const isFull = team.members.length >= team.maxMembers;
                           return (
                             <div key={team.id} className="rounded-lg border border-border p-3 bg-muted/20">

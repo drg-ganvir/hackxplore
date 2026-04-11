@@ -1,43 +1,37 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/lib/supabase";
 import { toast } from "@/hooks/use-toast";
 import { Team, TeamJoinRequest } from "@/types";
 
-// ─── PERSISTENT STORAGE ───────────────────────────────────────────────────────
-// Teams are stored in localStorage so they persist across page reloads
-// and are visible to ALL users (shared storage key)
+// ─── SUPABASE HELPERS ─────────────────────────────────────────────────────────
 
-const TEAMS_KEY = "hackxplore_teams";
-const REQUESTS_KEY = "hackxplore_join_requests";
-
-function getTeams(): Team[] {
-  try {
-    const raw = localStorage.getItem(TEAMS_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
+// Map DB row → Team type
+function rowToTeam(row: any): Team {
+  return {
+    id: row.id,
+    hackathonId: row.hackathon_id,
+    name: row.name,
+    description: row.description || "",
+    leaderId: row.leader_id,
+    members: row.members || [],
+    skillsNeeded: row.skills_needed || [],
+    maxMembers: row.max_members || 4,
+    isOpen: row.is_open ?? true,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
-function saveTeams(teams: Team[]) {
-  try {
-    localStorage.setItem(TEAMS_KEY, JSON.stringify(teams));
-  } catch {}
-}
-
-function getRequests(): TeamJoinRequest[] {
-  try {
-    const raw = localStorage.getItem(REQUESTS_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveRequests(requests: TeamJoinRequest[]) {
-  try {
-    localStorage.setItem(REQUESTS_KEY, JSON.stringify(requests));
-  } catch {}
+// Map DB row → TeamJoinRequest type
+function rowToRequest(row: any): TeamJoinRequest {
+  return {
+    id: row.id,
+    teamId: row.team_id,
+    userId: row.user_id,
+    status: row.status,
+    createdAt: row.created_at,
+  };
 }
 
 // ─── HOOK ─────────────────────────────────────────────────────────────────────
@@ -46,53 +40,58 @@ export const useTeams = () => {
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
-  // ── CREATE TEAM ──────────────────────────────────────────────────────────────
-  const createTeam = async (
-    teamData: Omit<Team, "id" | "members" | "createdAt" | "isOpen" | "updatedAt" | "leaderId">
-  ) => {
-    if (!user) return { success: false, error: "Please sign in to create a team" };
-
-    const newTeam: Team = {
-      id: `team-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      leaderId: user.id,
-      members: [user.id],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      isOpen: true,
-      ...teamData,
-    };
-
-    const teams = getTeams();
-    teams.push(newTeam);
-    saveTeams(teams);
-
-    // Invalidate all team queries so UI refreshes everywhere
+  const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["hackathon-teams"] });
     queryClient.invalidateQueries({ queryKey: ["user-teams"] });
     queryClient.invalidateQueries({ queryKey: ["all-teams"] });
+  };
 
-    return { success: true, data: newTeam };
+  // ── CREATE TEAM ──────────────────────────────────────────────────────────────
+  const createTeam = async (
+    teamData: Omit<Team, "id" | "members" | "createdAt" | "updatedAt" | "isOpen" | "leaderId">
+  ) => {
+    if (!user) return { success: false, error: "Please sign in to create a team" };
+
+    const newTeam = {
+      id: `team-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      hackathon_id: teamData.hackathonId,
+      name: teamData.name,
+      description: teamData.description,
+      leader_id: user.id,
+      members: [user.id],
+      skills_needed: teamData.skillsNeeded || [],
+      max_members: teamData.maxMembers || 4,
+      is_open: true,
+    };
+
+    const { data, error } = await supabase
+      .from("teams")
+      .insert(newTeam)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("createTeam error:", error);
+      return { success: false, error: error.message };
+    }
+
+    invalidate();
+    return { success: true, data: rowToTeam(data) };
   };
 
   // ── DELETE TEAM ──────────────────────────────────────────────────────────────
   const deleteTeam = async (teamId: string) => {
     if (!user) return { success: false, error: "Please sign in" };
 
-    const teams = getTeams();
-    const team = teams.find((t) => t.id === teamId);
+    const { error } = await supabase
+      .from("teams")
+      .delete()
+      .eq("id", teamId)
+      .eq("leader_id", user.id);
 
-    if (!team) return { success: false, error: "Team not found" };
-    if (team.leaderId !== user.id && !team.members.includes(user.id)) {
-      return { success: false, error: "Not authorized to delete this team" };
-    }
+    if (error) return { success: false, error: error.message };
 
-    const updated = teams.filter((t) => t.id !== teamId);
-    saveTeams(updated);
-
-    queryClient.invalidateQueries({ queryKey: ["hackathon-teams"] });
-    queryClient.invalidateQueries({ queryKey: ["user-teams"] });
-    queryClient.invalidateQueries({ queryKey: ["all-teams"] });
-
+    invalidate();
     return { success: true };
   };
 
@@ -100,13 +99,18 @@ export const useTeams = () => {
   const useHackathonTeams = (hackathonId: string) => {
     return useQuery({
       queryKey: ["hackathon-teams", hackathonId],
-      queryFn: () => {
-        const teams = getTeams();
-        return teams.filter((t) => t.hackathonId === hackathonId);
+      queryFn: async () => {
+        const { data, error } = await supabase
+          .from("teams")
+          .select("*")
+          .eq("hackathon_id", hackathonId)
+          .order("created_at", { ascending: false });
+
+        if (error) throw error;
+        return (data || []).map(rowToTeam);
       },
-      // Refetch frequently so changes from other "users" appear
-      staleTime: 10 * 1000, // 10 seconds
-      refetchInterval: 15 * 1000, // poll every 15s
+      staleTime: 10 * 1000,
+      refetchInterval: 15 * 1000, // poll every 15s — teams appear in real-time
     });
   };
 
@@ -114,7 +118,15 @@ export const useTeams = () => {
   const useAllTeams = () => {
     return useQuery({
       queryKey: ["all-teams"],
-      queryFn: () => getTeams(),
+      queryFn: async () => {
+        const { data, error } = await supabase
+          .from("teams")
+          .select("*")
+          .order("created_at", { ascending: false });
+
+        if (error) throw error;
+        return (data || []).map(rowToTeam);
+      },
       staleTime: 10 * 1000,
       refetchInterval: 15 * 1000,
     });
@@ -124,9 +136,16 @@ export const useTeams = () => {
   const useUserTeams = () => {
     return useQuery({
       queryKey: ["user-teams", user?.id],
-      queryFn: () => {
+      queryFn: async () => {
         if (!user) return [];
-        return getTeams().filter((t) => t.members.includes(user.id));
+        const { data, error } = await supabase
+          .from("teams")
+          .select("*")
+          .contains("members", [user.id])
+          .order("created_at", { ascending: false });
+
+        if (error) throw error;
+        return (data || []).map(rowToTeam);
       },
       enabled: !!user,
       staleTime: 10 * 1000,
@@ -138,79 +157,112 @@ export const useTeams = () => {
   const sendJoinRequest = async (teamId: string) => {
     if (!user) return { success: false, error: "Please sign in to join a team" };
 
-    const requests = getRequests();
+    // Check for existing request
+    const { data: existing } = await supabase
+      .from("join_requests")
+      .select("id")
+      .eq("team_id", teamId)
+      .eq("user_id", user.id)
+      .maybeSingle();
 
-    // Check if already requested
-    if (requests.find((r) => r.teamId === teamId && r.userId === user.id)) {
-      return { success: false, error: "You already sent a join request to this team" };
-    }
+    if (existing) return { success: false, error: "You already sent a join request to this team" };
 
     // Check if already a member
-    const teams = getTeams();
-    const team = teams.find((t) => t.id === teamId);
-    if (!team) return { success: false, error: "Team not found" };
-    if (team.members.includes(user.id)) {
+    const { data: team } = await supabase
+      .from("teams")
+      .select("members")
+      .eq("id", teamId)
+      .maybeSingle();
+
+    if (team?.members?.includes(user.id)) {
       return { success: false, error: "You are already a member of this team" };
     }
 
-    const newRequest: TeamJoinRequest = {
-      id: `req-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      teamId,
-      userId: user.id,
-      status: "pending",
-      createdAt: new Date().toISOString(),
-    };
+    const { data, error } = await supabase
+      .from("join_requests")
+      .insert({
+        id: `req-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        team_id: teamId,
+        user_id: user.id,
+        user_email: user.email || "",
+        status: "pending",
+      })
+      .select()
+      .single();
 
-    requests.push(newRequest);
-    saveRequests(requests);
+    if (error) return { success: false, error: error.message };
 
     queryClient.invalidateQueries({ queryKey: ["user-sent-requests"] });
     queryClient.invalidateQueries({ queryKey: ["team-requests", teamId] });
 
-    return { success: true, data: newRequest };
+    return { success: true, data: rowToRequest(data) };
   };
 
-  // ── ACCEPT / REJECT JOIN REQUEST ──────────────────────────────────────────────
+  // ── RESPOND TO JOIN REQUEST ───────────────────────────────────────────────────
   const respondToJoinRequest = async (
     requestId: string,
     action: "accepted" | "rejected"
   ) => {
     if (!user) return { success: false, error: "Not authenticated" };
 
-    const requests = getRequests();
-    const reqIdx = requests.findIndex((r) => r.id === requestId);
-    if (reqIdx === -1) return { success: false, error: "Request not found" };
+    // Get the request
+    const { data: req, error: reqErr } = await supabase
+      .from("join_requests")
+      .select("*")
+      .eq("id", requestId)
+      .single();
 
-    const req = requests[reqIdx];
+    if (reqErr || !req) return { success: false, error: "Request not found" };
+
+    // Update request status
+    const { error: updateErr } = await supabase
+      .from("join_requests")
+      .update({ status: action })
+      .eq("id", requestId);
+
+    if (updateErr) return { success: false, error: updateErr.message };
 
     if (action === "accepted") {
-      // Add user to team members
-      const teams = getTeams();
-      const teamIdx = teams.findIndex((t) => t.id === req.teamId);
-      if (teamIdx !== -1) {
-        if (!teams[teamIdx].members.includes(req.userId)) {
-          teams[teamIdx].members.push(req.userId);
-          teams[teamIdx].updatedAt = new Date().toISOString();
-        }
-        saveTeams(teams);
+      // Add user to team members array
+      const { data: teamData } = await supabase
+        .from("teams")
+        .select("members")
+        .eq("id", req.team_id)
+        .single();
+
+      const currentMembers: string[] = teamData?.members || [];
+      if (!currentMembers.includes(req.user_id)) {
+        await supabase
+          .from("teams")
+          .update({
+            members: [...currentMembers, req.user_id],
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", req.team_id);
       }
     }
 
-    requests[reqIdx] = { ...req, status: action };
-    saveRequests(requests);
-
-    queryClient.invalidateQueries({ queryKey: ["hackathon-teams"] });
-    queryClient.invalidateQueries({ queryKey: ["user-teams"] });
-    queryClient.invalidateQueries({ queryKey: ["team-requests", req.teamId] });
+    invalidate();
+    queryClient.invalidateQueries({ queryKey: ["team-requests", req.team_id] });
 
     return { success: true };
   };
 
-  // ── GET REQUESTS FOR A TEAM ───────────────────────────────────────────────────
+  // ── GET PENDING REQUESTS FOR A TEAM ──────────────────────────────────────────
   const useTeamRequests = (teamId: string) => {
     return useQuery({
       queryKey: ["team-requests", teamId],
-      queryFn: () => getRequests().filter((r) => r.teamId === teamId && r.status === "pending"),
+      queryFn: async () => {
+        const { data, error } = await supabase
+          .from("join_requests")
+          .select("*")
+          .eq("team_id", teamId)
+          .eq("status", "pending")
+          .order("created_at", { ascending: false });
+
+        if (error) throw error;
+        return (data || []).map(rowToRequest);
+      },
       staleTime: 10 * 1000,
       refetchInterval: 15 * 1000,
     });
@@ -220,9 +272,16 @@ export const useTeams = () => {
   const useUserSentRequests = () => {
     return useQuery({
       queryKey: ["user-sent-requests", user?.id],
-      queryFn: () => {
+      queryFn: async () => {
         if (!user) return [];
-        return getRequests().filter((r) => r.userId === user.id);
+        const { data, error } = await supabase
+          .from("join_requests")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false });
+
+        if (error) throw error;
+        return (data || []).map(rowToRequest);
       },
       enabled: !!user,
       staleTime: 10 * 1000,
@@ -233,23 +292,26 @@ export const useTeams = () => {
   const joinTeam = async (teamId: string) => {
     if (!user) return { success: false, error: "Please sign in" };
 
-    const teams = getTeams();
-    const idx = teams.findIndex((t) => t.id === teamId);
-    if (idx === -1) return { success: false, error: "Team not found" };
-    if (teams[idx].members.includes(user.id)) {
-      return { success: false, error: "Already a member" };
-    }
-    if (teams[idx].members.length >= teams[idx].maxMembers) {
-      return { success: false, error: "Team is full" };
-    }
+    const { data: teamData, error: fetchErr } = await supabase
+      .from("teams")
+      .select("members, max_members")
+      .eq("id", teamId)
+      .single();
 
-    teams[idx].members.push(user.id);
-    teams[idx].updatedAt = new Date().toISOString();
-    saveTeams(teams);
+    if (fetchErr) return { success: false, error: "Team not found" };
 
-    queryClient.invalidateQueries({ queryKey: ["hackathon-teams"] });
-    queryClient.invalidateQueries({ queryKey: ["user-teams"] });
+    const members: string[] = teamData.members || [];
+    if (members.includes(user.id)) return { success: false, error: "Already a member" };
+    if (members.length >= teamData.max_members) return { success: false, error: "Team is full" };
 
+    const { error } = await supabase
+      .from("teams")
+      .update({ members: [...members, user.id], updated_at: new Date().toISOString() })
+      .eq("id", teamId);
+
+    if (error) return { success: false, error: error.message };
+
+    invalidate();
     return { success: true };
   };
 
@@ -257,30 +319,35 @@ export const useTeams = () => {
   const leaveTeam = async (teamId: string) => {
     if (!user) return { success: false, error: "Please sign in" };
 
-    const teams = getTeams();
-    const idx = teams.findIndex((t) => t.id === teamId);
-    if (idx === -1) return { success: false, error: "Team not found" };
+    const { data: teamData } = await supabase
+      .from("teams")
+      .select("members")
+      .eq("id", teamId)
+      .single();
 
-    teams[idx].members = teams[idx].members.filter((m) => m !== user.id);
-    teams[idx].updatedAt = new Date().toISOString();
+    if (!teamData) return { success: false, error: "Team not found" };
 
-    // If team is now empty, delete it
-    if (teams[idx].members.length === 0) {
-      teams.splice(idx, 1);
+    const updatedMembers = (teamData.members || []).filter((m: string) => m !== user.id);
+
+    if (updatedMembers.length === 0) {
+      // Delete team if empty
+      await supabase.from("teams").delete().eq("id", teamId);
+    } else {
+      await supabase
+        .from("teams")
+        .update({ members: updatedMembers, updated_at: new Date().toISOString() })
+        .eq("id", teamId);
     }
-    saveTeams(teams);
 
-    queryClient.invalidateQueries({ queryKey: ["hackathon-teams"] });
-    queryClient.invalidateQueries({ queryKey: ["user-teams"] });
-
+    invalidate();
     return { success: true };
   };
 
   // ── IS USER IN TEAM ───────────────────────────────────────────────────────────
   const isUserInTeam = (teamId: string): boolean => {
-    if (!user) return false;
-    const team = getTeams().find((t) => t.id === teamId);
-    return team ? team.members.includes(user.id) : false;
+    // This is a sync check — used for UI rendering
+    // The actual data comes from useHackathonTeams query
+    return false; // Will be checked via query data in the component
   };
 
   return {
