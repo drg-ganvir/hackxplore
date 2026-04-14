@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { useAuth } from "@/contexts/AuthContext";
-import { useTeams } from "@/services/teamService";
+import { useTeams, useUserTeams } from "@/services/teamService";
 import { useBookmarks } from "@/services/bookmarkService";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
@@ -24,7 +24,7 @@ import { hackathonsData, internshipsData } from "@/data/mockData";
 
 export default function Profile() {
   const { user, profile, isLoading: isProfileLoading } = useAuth();
-  const { useUserTeams, deleteTeam } = useTeams();
+  const { deleteTeam } = useTeams();
   const { bookmarks, removeBookmark } = useBookmarks();
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -34,7 +34,7 @@ export default function Profile() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [teamToDelete, setTeamToDelete] = useState<string | null>(null);
   
-  const { data: teams, isLoading: isTeamsLoading } = useUserTeams();
+  const { data: teams, isLoading: isTeamsLoading } = useUserTeams(user?.id);
   
   const bookmarkedHackathons = hackathonsData.filter(
     hackathon => bookmarks.some(b => b.itemId === hackathon.id && b.itemType === "hackathon")
