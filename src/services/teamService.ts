@@ -139,7 +139,7 @@ export const useTeamActions = () => {
     const { data, error } = await supabase
       .from("teams").insert(newTeam).select().single();
 
-    if (error) return { success: false, error: error.message };
+    if (error) return { success: false, error: error.message, userEmail: undefined };
     invalidateAll();
     return { success: true, data: rowToTeam(data) };
   };
@@ -148,7 +148,7 @@ export const useTeamActions = () => {
     if (!user) return { success: false, error: "Please sign in" };
     const { error } = await supabase.from("teams").delete()
       .eq("id", teamId).eq("leader_id", user.id);
-    if (error) return { success: false, error: error.message };
+    if (error) return { success: false, error: error.message, userEmail: undefined };
     invalidateAll();
     return { success: true };
   };
@@ -175,7 +175,7 @@ export const useTeamActions = () => {
       status: "pending",
     }).select().single();
 
-    if (error) return { success: false, error: error.message };
+    if (error) return { success: false, error: error.message, userEmail: undefined };
 
     // Invalidate the specific team's requests so leader sees it immediately
     queryClient.invalidateQueries({ queryKey: ["team-requests", teamId] });
@@ -211,7 +211,7 @@ export const useTeamActions = () => {
     invalidateAll();
     queryClient.invalidateQueries({ queryKey: ["team-requests", req.team_id] });
 
-    return { success: true, userEmail: req.user_email || req.user_id };
+    return { success: true, userEmail: req.user_email || req.user_id, error: undefined };
   };
 
   const joinTeam = async (teamId: string) => {
@@ -225,7 +225,7 @@ export const useTeamActions = () => {
     const { error } = await supabase.from("teams")
       .update({ members: [...members, user.id], updated_at: new Date().toISOString() })
       .eq("id", teamId);
-    if (error) return { success: false, error: error.message };
+    if (error) return { success: false, error: error.message, userEmail: undefined };
     invalidateAll();
     return { success: true };
   };

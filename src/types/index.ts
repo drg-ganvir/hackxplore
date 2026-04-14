@@ -177,6 +177,7 @@ export interface TeamJoinRequest {
   id: string;
   teamId: string;
   userId: string;
+  userEmail?: string;
   status: 'pending' | 'accepted' | 'rejected';
   createdAt: string;
 }
